@@ -7,6 +7,7 @@ import platform
 import simplejson as json
 import logging
 import uuid
+import ctypes
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -27,21 +28,55 @@ from modelscope.models.base import Model, TorchModel
 from modelscope.models.builder import MODELS
 import sortedcontainers as sc
 
+
+# 检查管理员权限
+def is_admin():
+    """检查是否以管理员权限运行"""
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+
+# 以管理员权限重启程序
+def restart_as_admin():
+    """以管理员权限重启程序"""
+    if is_admin():
+        return True
+
+    try:
+        if sys.platform == 'win32':
+            ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", sys.executable, " ".join(sys.argv), None, 1
+            )
+            sys.exit()
+        else:
+            print("此功能仅支持Windows系统")
+            return True
+    except:
+        print("获取管理员权限失败")
+        return False
+
+
 # 设置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 def print_step(msg):
     """打印带有样式的步骤信息"""
     logger.info(f"\n🔹 {msg}")
 
+
 def print_success(msg):
     """打印带有样式的成功信息"""
     logger.info(f"\n✅ {msg}")
 
+
 def print_error(msg):
     """打印带有样式的错误信息"""
     logger.error(f"\n❌ {msg}")
+
 
 def check_python():
     """检查Python环境"""
@@ -52,6 +87,7 @@ def check_python():
         sys.exit(1)
     print_success("Python版本检查通过")
 
+
 def install_package(package: str):
     """安装指定的包"""
     try:
@@ -61,6 +97,7 @@ def install_package(package: str):
         logger.error(f"{package} 安装失败")
         sys.exit(1)
 
+
 def update_package(package: str):
     """更新指定的包"""
     try:
@@ -69,6 +106,7 @@ def update_package(package: str):
     except subprocess.CalledProcessError:
         logger.error(f"{package} 更新失败")
         sys.exit(1)
+
 
 def check_and_install_dependencies():
     """检查并安装缺失的依赖包"""
@@ -118,6 +156,7 @@ def check_and_install_dependencies():
 
     print_success("依赖包检查和安装完成")
 
+
 @MODELS.register_module('text-to-speech', module_name='hoyotts')
 class HoyoTTSModel(TorchModel):
     def __init__(self, model_dir, *args, **kwargs):
@@ -138,6 +177,7 @@ class HoyoTTSModel(TorchModel):
         speaker_id = self.spk2id[voice_name]
         audio_length = int(self.sampling_rate * 3)  # 3秒的音频
         return torch.randn(audio_length)
+
 
 @PIPELINES.register_module('text-to-speech', module_name='hoyotts-speech-generation')
 class HoyoTTSPipeline(Pipeline):
@@ -169,6 +209,7 @@ class HoyoTTSPipeline(Pipeline):
     def postprocess(self, inputs):
         return inputs
 
+
 def setup_server():
     """设置并启动服务器"""
     try:
@@ -177,7 +218,8 @@ def setup_server():
         local_cache_dir.mkdir(exist_ok=True)
 
         system = platform.system()
-        TEMP_DIR = Path(os.getenv('TEMP')) / "hoyo_tts" / "output" if system == "Windows" else Path.home() / "Library" / "Caches" / "hoyo_tts" / "output"
+        TEMP_DIR = Path(os.getenv(
+            'TEMP')) / "hoyo_tts" / "output" if system == "Windows" else Path.home() / "Library" / "Caches" / "hoyo_tts" / "output"
         TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
         print_step("正在下载模型（初次运行可能需要几分钟）...")
@@ -272,6 +314,7 @@ def setup_server():
         print("4. 使用管理员权限运行")
         sys.exit(1)
 
+
 def main():
     """主程序入口"""
     print("\n=== Hoyo TTS 语音合成服务器 ===")
@@ -280,6 +323,13 @@ def main():
     print("运行过程中请勿关闭此窗口\n")
 
     try:
+        # 检查管理员权限
+        if not is_admin():
+            print_step("正在请求管理员权限...")
+            if not restart_as_admin():
+                print_error("无法获取管理员权限，程序可能无法正常运行")
+                input("按Enter继续以普通权限运行，或关闭程序")
+
         check_python()
         check_and_install_dependencies()
         setup_server()
@@ -309,6 +359,7 @@ def main():
         print("2. 重启电脑后重试")
         print("3. 确保安装了最新版Python")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
